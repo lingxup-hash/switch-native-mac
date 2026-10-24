@@ -14,3 +14,25 @@
 __pycache__/
 .DS_Store
 ._*
+
+# 下载、提取、运行与本地开发产物
+*.nsz
+*.xcz
+*.metalarchive
+*.partial
+*.dmg
+*.ipa
+*.app/
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+.worktrees/
+RomFS/
+ExeFS/
+romfs/
+extracted/
+shader-cache/
+profile/
+profile-backup*/
