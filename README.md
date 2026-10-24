@@ -7,6 +7,16 @@
 > **本仓库不含任何游戏内容。** 没有游戏文件（XCI/NSP/NCA）、没有从游戏里提取或生成的数据（RomFS、改写后的代码、着色器库）、没有存档、没有密钥。
 > 所有工具都需要你用**自己合法拥有的游戏**和自己导出的 `prod.keys` 来运行。
 
+## 从哪里开始
+
+本仓库是方法、补丁和实验工具的集合，不是把任意 Switch 游戏一键转成 Mac 应用的通用安装器。
+
+- **第一次使用**：[准备与使用边界](docs/入门与工具边界.md)。先选具体游戏、版本和对应上游，勿直接执行含作者绝对路径的脚本。
+- **看当前成果**：[验证状态与后续事项](docs/验证状态与后续事项.md)。较晚的专项记录优先于早期完整报告，历史记录保留以便追溯。
+- **旷野之息卡顿／穿模**：[性能与缓存排查](docs/旷野之息性能与缓存排查.md)。高瞬时 FPS 不代表跑动稳定，缓存预热不等于物理问题修复。
+- **使用金手指**：[金手指说明](cheats/botw-trainer/README.md)。仅针对指定1.6.0原生构建，单次修改；“当前箭”是已装备箭种。
+- **贡献与本地测试**：[CONTRIBUTING.md](CONTRIBUTING.md)。测试使用合成数据，不需要游戏或密钥，不配置自动付费运行任务。
+
 ## 用到的框架
 
 | 项目 | 用途 | 许可证 |
@@ -41,7 +51,7 @@
 ## 目录
 
 - `docs/` — 可行性分析、诊断过程、环境准备、完整工作报告。
-- `tools/xci/` — 整合 XCI（本体+更新+DLC 同在一个安全分区）拆成 nxnative 能用的 NSP：`list_xci.py`（不需要密钥，列出安全分区）、`split_groups.py` / `split_xci.py`（按 CNMT 分组写 PFS0，逐个校验 NCA 的 SHA-256）。
+- `tools/xci/` — 整合 XCI（本体+更新+DLC 同在一个安全分区）拆成 nxnative 能用的 NSP：`list_xci.py`（不需要密钥，列出安全分区）、`split_groups.py` / `split_xci.py`（历史分组脚本写 PFS0，比对文件名中的哈希前缀；详见使用边界，不能代替内容完整性验证）。
 - `tools/re/` — 反汇编辅助：`nso2elf.py`（NSO → 标准 ELF，供 Ghidra/REA/capstone 用）、`elfsyms.py`（符号表、RELR、虚表还原）、`mdis.py`（带 PLT 导入名的反汇编）、`plt_callers.py`、`find_movie_calls.py`。
 - `tools/run/` — 运行与诊断脚本（`DM_CTL` 自动按键截图、带窗口启动、nxnative survey）。脚本里的路径是作者本机的，用前改成自己的。
 - `patches/nxnative/` — 对 nxnative 的两个补丁（见下）。
