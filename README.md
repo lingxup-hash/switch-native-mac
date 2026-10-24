@@ -42,7 +42,7 @@
 1. **`MAX_MOD` 128 → 256，Bezel 档案新布局**：派对有 3 个主模块 + 139 个 NRO，超过原来的 128 个模块槽；它的 `.bea`（文件版本 0x60000）条目改为 0x48 字节内联排列。
 2. **原生纹理模式下 `GetOutputBuffer` 要归还输出槽**：SDK 的 `DecoderImpl::GetOutputBuffer` 在原生纹理模式下调用 `CopyOutputBufferToClientTextureAndRelease`，拷进纹理的同时就还槽。游戏据此把帧的槽号标为 -1、不再还；host 不还槽会让 16 个视频槽 0.27 秒占满，片头黑屏。
 
-补丁基于 nxnative `ebe75c9` 加上 PR #89、#90、#91。完整分支在作者的 nxnative 复刻 `local/jamboree-nro`。
+补丁基于 nxnative `ebe75c9` 加上 PR #89、#90、#91。完整分支在作者的 nxnative 复刻：[lingxup-hash/nxnative `jamboree-nro`](https://github.com/lingxup-hash/nxnative/tree/jamboree-nro)。
 
 另外马力欧派对需要大虚拟地址布局：游戏在 `nninitStartup` 里 `StandardAllocator::Initialize(nullptr, 56 GiB, true)`，profile 的 `mem_alias` 要容纳它（见 `profiles/`，做法照 nxnative 文档里 Absolum / Paper Mario 的先例）。
 
