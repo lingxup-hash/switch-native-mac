@@ -1,0 +1,104 @@
+From 3c88be9e109802fbf76bb9084c04a5c12d059f1f Mon Sep 17 00:00:00 2001
+From: local <local@localhost>
+Date: Fri, 23 Oct 2026 21:42:35 -0300
+Subject: [PATCH 2/2] local: native-texture GetOutputBuffer returns the output
+ slot, as the SDK's CopyOutputBufferToClientTextureAndRelease does (Jamboree
+ opening movie stalled after 16 frames); explicit release of a slot not held
+ is ignored
+
+---
+ dm/host/hle_movie.c | 38 ++++++++++++++++++++++++--------------
+ 1 file changed, 24 insertions(+), 14 deletions(-)
+
+diff --git a/dm/host/hle_movie.c b/dm/host/hle_movie.c
+index 1b1abe7..5931415 100644
+--- a/dm/host/hle_movie.c
++++ b/dm/host/hle_movie.c
+@@ -68,14 +68,14 @@ typedef struct {
+     int w, h, fmt_sent, started, in_eos;          // in_eos: an end-of-stream packet was sent; no input until Flush / Stop (h_movie_AcqIn)
+     uint8_t *in[MD_NIN]; int infree[MD_NIN], ninfree;                     // queue of free input indices
+     int inown[MD_NIN]; uint64_t instale[MD_NIN];                          // inown: acquired by the client and not sent yet; instale: when a Flush / Stop found it held (the client may still send it), 0 if not
+-    struct { int used, pic; int64_t pts; uint32_t flags; uint8_t *frm; size_t cap, bytes; } out[MD_NOUT];   // pic: frm holds a decoded picture (audio: bytes of PCM); cap: bytes in frm
++    struct { int used, pic, held; int64_t pts; uint32_t flags; uint8_t *frm; size_t cap, bytes; } out[MD_NOUT];   // pic: frm holds a decoded picture (audio: bytes of PCM); cap: bytes in frm; held: acquired by the client and not returned yet
+     int outq[MD_NOUT], noutq;                                             // queue of ready output indices
+     struct { int in, off, size; int64_t pts; uint32_t flags; } pend[MD_NIN]; int npend;   // input packets waiting to be decoded (in arrival order)
+     // Decoding: dmu lets only one guest thread take and decode packets at a time (packets enter libvpx in order); wmu / wcv hand one job to the host thread and wait for it
+     pthread_mutex_t dmu, wmu; pthread_cond_t wcv; pthread_t wk;
+     int job; const uint8_t *jp; int jn, jslot, jgot; int64_t jpts, jpts_out; int jflush;
+     mavc *avc; int avc_drain;                    // H.264 (hle_movie_avc.c); avc_drain: the end-of-stream packet came with pictures still queued, they leave one per free slot
+-    vpx_codec_ctx_t vpx; int vpx_on, red_dec, red_img;
++    vpx_codec_ctx_t vpx; int vpx_on, red_dec, red_img, red_rel;
+     // Vorbis: the identification and setup headers from Configure's MediaData ("csd-0", "csd-1", as with Android's MediaCodec), the decoder (opened at the first packet), channels / rate, Ogg page sequence
+     uint8_t *vhdr[2]; int vhdr_n[2]; stb_vorbis *vb; int ch, rate; uint32_t ogg_seq; int64_t ogg_gran; int red_vb;
+     // AAC (Monster Hunter Rise's movies): AudioToolbox's converter, opened at the first packet from the AudioSpecificConfig (Configure's csd-0, kept in vhdr[0]); the packet being fed
+@@ -571,7 +571,7 @@ static void md_reset(mdec_t *d, int close) {
+     for (int i = 0; i < MD_NIN; i++) { d->infree[i] = i; d->instale[i] = d->inown[i] ? now : 0; d->inown[i] = 0; }
+     d->ninfree = MD_NIN; d->noutq = 0; d->npend = 0; d->avc_drain = 0; d->in_eos = 0;
+     // a flush keeps each slot's last picture: the same game reads an output it acquired before the flush right after it (a black frame in the loop otherwise)
+-    for (int i = 0; i < MD_NOUT; i++) { d->out[i].used = 0; if (close) d->out[i].pic = 0; }
++    for (int i = 0; i < MD_NOUT; i++) { d->out[i].used = 0; d->out[i].held = 0; if (close) d->out[i].pic = 0; }
+     pthread_mutex_unlock(&d->mu);
+     pthread_mutex_unlock(&d->dmu);
+ }
+@@ -663,7 +663,7 @@ HLE_FORCE("_ZN5movie7Decoder24AcquireOutputBufferIndexEPiPlPjS1_", "movie decode
+     int r = MD_NO_OUTPUT; *idx = -1; *left = 0;
+     if (d->noutq && d->started) {
+         int s = d->outq[0]; memmove(d->outq, d->outq + 1, --d->noutq * sizeof *d->outq);
+-        *idx = s; *pts = d->out[s].pts; *flags = d->out[s].flags; *left = d->noutq; r = 0;
++        *idx = s; *pts = d->out[s].pts; *flags = d->out[s].flags; *left = d->noutq; r = 0; d->out[s].held = 1;
+     }
+     pthread_mutex_unlock(&d->mu);
+     if (!r) MD_TRACE(d, 8, "AcquireOutputBufferIndex → index %d time %lld flags %#x left %d", *idx, (long long)*pts, *flags, *left);
+@@ -708,6 +708,24 @@ HLE_FORCE("_ZN5movie7Decoder19GetOutputBufferSizeEPiS1_", "movie decoder: output
+ // In the SDK, NnCodecConsumer draws the decoded frame into that texture on the GPU and signals the sync when done; the host writes the texture storage on the CPU (as WriteTexels; the replay layer re-uploads dirty pages), and the sync counts as done once written
+ int nvn_host_write_texture(const void *nvntex, const void *src, int w, int h, size_t row, int *tw, int *th);
+ int nvn_host_signal_sync(void *nvnsync);
++// Return an output slot the client holds and decode queued packets into it again. `why` names the caller for the log. A slot the client does not hold is left alone:
++// in native-texture mode GetOutputBuffer already returned it (below), and a game that still calls ReleaseOutputBufferIndex afterwards would otherwise throw away the
++// picture decoded into the slot since
++static int md_release_slot(mdec_t *d, int i, const char *why) {
++    pthread_mutex_lock(&d->mu);
++    if (!d->out[i].held) { pthread_mutex_unlock(&d->mu); if (!d->red_rel++) LOG("[movie] %s index %d: not held by the client (already returned), ignored", why, i); return 0; }
++    d->out[i].held = 0; d->out[i].used = 0; d->out[i].pic = 0;
++    int queued = d->npend, drain = d->avc_drain;
++    pthread_mutex_unlock(&d->mu);
++    MD_TRACE(d, 13, "%s index %d (%d packets queued%s)", why, i, queued, drain ? ", H.264 pictures draining" : "");
++    // An H.264 drain waits for a free slot too: AI: THE SOMNIUM FILES (Unity 2017.4) held all 16 video slots when its logo movie's end-of-stream packet came, the drain stopped
++    // with no packet queued, the last pictures and the end-of-stream flag never came out, and the game waited for the movie's end for good
++    if (queued || drain) md_pump(d);
++    return 0;
++}
++// Native-texture mode: the SDK's DecoderImpl::GetOutputBuffer copies the picture into the client's texture and returns the slot in the same call
++// (CopyOutputBufferToClientTextureAndRelease, SDK 17.5.9 subsdk0+0x124b48). Super Mario Party Jamboree's frame preparer (main+0x793df0) relies on it: after GetOutputBuffer it marks
++// the frame's index -1 and never releases it, so with the slot kept all 16 video slots filled in the first 0.27 s of its opening movie, decoding stopped and the screen went black
+ static int md_out_tex(mdec_t *d, int i, void *buf) {
+     // SDK 4's Buffer has no sync object (Dark Souls Remastered's subsdk0 exports no GetNvnSync): the game reads the texture once GetOutputBuffer returns, which the CPU write already satisfies
+     static int sync_looked; if (!sync_looked) { G.nvn_sync = guest_sym("_ZNK5movie6Buffer10GetNvnSyncEv"); sync_looked = 1; }
+@@ -722,7 +740,7 @@ static int md_out_tex(mdec_t *d, int i, void *buf) {
+     if (d->out[i].pic && d->out[i].frm) nvn_host_write_texture(tex, d->out[i].frm, w, h, (size_t)d->w * 4, NULL, NULL);
+     void *sy = G.nvn_sync ? G.nvn_sync(buf) : NULL; if (sy && nvn_host_signal_sync(sy) && !d->red_dec++) LOG("[RED] movie: the buffer's sync object %p is not an NVNsync", sy);
+     MD_TRACE(d, 12, "GetOutputBuffer index %d → texture %p (%d×%d format %#x)%s", i, tex, tw, th, f, d->out[i].pic ? "" : " (no picture: the texture keeps its last frame)");
+-    return 0;
++    return md_release_slot(d, i, "GetOutputBuffer (native texture) returns");
+ }
+ HLE_FORCE("_ZN5movie7Decoder15GetOutputBufferEiPNS_6BufferE", "movie decoder: get a frame", int, h_movie_GetOut, void **self, int i, void *buf) {
+     mdec_t *d = md_of(self); if (!d) return 0x1000;
+@@ -758,14 +776,6 @@ HLE_FORCE("_ZN5movie7Decoder15GetOutputBufferEiPNS_6BufferEPNS_9MediaDataE", "mo
+ HLE_FORCE("_ZN5movie7Decoder24ReleaseOutputBufferIndexEi", "movie decoder: release an output index (decodes queued packets again)", int, h_movie_RelOut, void **self, int i) {
+     mdec_t *d = md_of(self); if (!d) return 0x1000;
+     if (i < 0 || i >= d->nout) return 0x100b;
+-    pthread_mutex_lock(&d->mu);
+-    d->out[i].used = 0; d->out[i].pic = 0;
+-    int queued = d->npend, drain = d->avc_drain;
+-    pthread_mutex_unlock(&d->mu);
+-    MD_TRACE(d, 13, "ReleaseOutputBufferIndex index %d (%d packets queued%s)", i, queued, drain ? ", H.264 pictures draining" : "");
+-    // An H.264 drain waits for a free slot too: AI: THE SOMNIUM FILES (Unity 2017.4) held all 16 video slots when its logo movie's end-of-stream packet came, the drain stopped
+-    // with no packet queued, the last pictures and the end-of-stream flag never came out, and the game waited for the movie's end for good
+-    if (queued || drain) md_pump(d);
+-    return 0;
++    return md_release_slot(d, i, "ReleaseOutputBufferIndex");
+ }
+ HLE_FORCE("_ZN5movie7Decoder12GetLastErrorEv", "movie decoder: last error (none)", int, h_movie_LastErr, void **self) { (void)self; return 0; }
+-- 
+2.54.0 (Apple Git-157)
+

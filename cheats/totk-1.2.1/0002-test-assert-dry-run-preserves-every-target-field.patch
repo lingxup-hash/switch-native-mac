@@ -1,0 +1,55 @@
+From 4b30ba93471fb421127174cc9adc878f6cf08654 Mon Sep 17 00:00:00 2001
+From: lingxup-hash <lingxup-hash@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 15:05:20 -0300
+Subject: [PATCH 2/2] test: assert dry run preserves every target field
+
+---
+ docs/superpowers/plans/2026-10-22-local-cheats.md | 12 +++++++-----
+ tests/local_cheats121_probe.c                     |  2 +-
+ 2 files changed, 8 insertions(+), 6 deletions(-)
+
+diff --git a/docs/superpowers/plans/2026-10-22-local-cheats.md b/docs/superpowers/plans/2026-10-22-local-cheats.md
+index 266765a..3a70103 100644
+--- a/docs/superpowers/plans/2026-10-22-local-cheats.md
++++ b/docs/superpowers/plans/2026-10-22-local-cheats.md
+@@ -15,17 +15,19 @@ Null/freed objects: checked reads and writes; empty inventory sentinels: retain;
+ 
+ ### Task 1: Core
+ Files: games/totk/runtime/local_cheats121.h; tests/local_cheats121_probe.c; tests/test_local_cheats121.py.
+-- [ ] Write fixture for health/stamina/weapon/money/materials plus disabled/null/unreadable cases; run red against no-op API.
+-- [ ] Implement narrowly translated pointer rules, including material conditional pointer advancement from the supplied codes.
+-- [ ] Run green and sanitizer checks; record result.
++- [x] Write fixture for health/stamina/weapon/money/materials plus disabled/null/unreadable cases; run red against no-op API.
++- [x] Implement narrowly translated pointer rules, including material conditional pointer advancement from the supplied codes.
++- [x] Run green and sanitizer checks; record result.
+ 
+ ### Task 2: Adapter
+ Files: games/totk/runtime/local_cheats121_host.h; runtime/loader.c.
+-- [ ] Validate configuration parser and version guard with negative cases.
+-- [ ] Add guarded self-memory access (readable/writable non-executable ranges), config refresh, counters; wire only v121 boot path.
++- [x] Validate configuration parser and version guard with negative cases.
++- [x] Add guarded self-memory access (readable/writable non-executable ranges), config refresh, counters; wire only v121 boot path.
+ - [ ] Build changed runtime in a separate APFS-cloned work folder after normal 1.2.1 completes; package separate bundle using same validated data.
+ 
+ ### Task 3: Runtime
+ - [ ] Copy profile to T7 experimental profile. Enable each feature independently then together; log addresses only when necessary, no unrelated data.
+ - [ ] Observe actual gameplay; do not assert features untestable in prologue are working.
+ - [ ] Verify disable and restart; run full unittest suite, fresh review, record status and remaining limitations.
++
++Execution ledger: user approved written design and instructed inline implementation. Core red/green and sanitizer checks passed. Full suite 299 passed after material ELSE and guest ownership corrections. Fresh reviewer rechecked both fixes with no remaining blocker. Native runtime compiled. Ordinary app and separate experimental bundle packaging pending. No game writes have been performed.
+diff --git a/tests/local_cheats121_probe.c b/tests/local_cheats121_probe.c
+index 0f03468..2fb9c41 100644
+--- a/tests/local_cheats121_probe.c
++++ b/tests/local_cheats121_probe.c
+@@ -27,7 +27,7 @@ static void fixture(void){
+ int main(void){
+  data=calloc(1,SIZE);assert(data);LCMemory m={0,read_mem,write_mem};fixture();
+  LCStats s=lc_tick(m,0x1000,0,0);assert(!s.ready&&r(0x17008)==4);
+- s=lc_tick(m,0x1000,31,1);assert(r(0x17008)==4&&r(0x50ea4)==25);
++ s=lc_tick(m,0x1000,31,1);assert(r(0x17008)==4&&r(0x50ea4)==25&&r(0x1c3fc)==0x43fa0000&&r(0x27008)==11&&r(0x54000)==12&&r(0x54004)==7);
+  s=lc_tick(m,0x1000,1,0);assert(r(0x17008)==12);assert(r(0x18008)==0);assert(r(0x27008)==11);
+  s=lc_tick(m,0x1000,2,0);assert(r(0x1c3fc)==0x447a0000);
+  s=lc_tick(m,0x1000,4,0);assert(r(0x27008)==30);
+-- 
+2.54.0 (Apple Git-157)
+

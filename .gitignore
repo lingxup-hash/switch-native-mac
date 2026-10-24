@@ -1,0 +1,16 @@
+# 游戏内容、密钥、存档和产物永远不进仓库
+*.nca
+*.nsp
+*.xci
+*.nso
+*.nro
+*.keys
+*.metallib
+*.dat
+*.elf
+*.bin
+*.log
+*.pyc
+__pycache__/
+.DS_Store
+._*

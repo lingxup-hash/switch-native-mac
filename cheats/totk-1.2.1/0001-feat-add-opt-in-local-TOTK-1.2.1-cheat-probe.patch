@@ -1,0 +1,441 @@
+From facbaf140e65d84ed818bb2820bdf81243bb7ac2 Mon Sep 17 00:00:00 2001
+From: lingxup-hash <lingxup-hash@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 14:59:35 -0300
+Subject: [PATCH 1/2] feat: add opt-in local TOTK 1.2.1 cheat probe
+
+---
+ .../plans/2026-10-22-local-cheats.md          | 31 ++++++++
+ games/totk/runtime/loader.c                   |  7 ++
+ games/totk/runtime/local_cheats121.h          | 75 +++++++++++++++++++
+ games/totk/runtime/local_cheats121_config.h   | 30 ++++++++
+ games/totk/runtime/local_cheats121_host.h     | 60 +++++++++++++++
+ games/totk/runtime/services.c                 | 23 ++++++
+ tests/local_cheats121_config_probe.c          | 15 ++++
+ tests/local_cheats121_host_probe.c            | 17 +++++
+ tests/local_cheats121_probe.c                 | 42 +++++++++++
+ tests/test_local_cheats121.py                 | 22 ++++++
+ 10 files changed, 322 insertions(+)
+ create mode 100644 docs/superpowers/plans/2026-10-22-local-cheats.md
+ create mode 100644 games/totk/runtime/local_cheats121.h
+ create mode 100644 games/totk/runtime/local_cheats121_config.h
+ create mode 100644 games/totk/runtime/local_cheats121_host.h
+ create mode 100644 tests/local_cheats121_config_probe.c
+ create mode 100644 tests/local_cheats121_host_probe.c
+ create mode 100644 tests/local_cheats121_probe.c
+ create mode 100644 tests/test_local_cheats121.py
+
+diff --git a/docs/superpowers/plans/2026-10-22-local-cheats.md b/docs/superpowers/plans/2026-10-22-local-cheats.md
+new file mode 100644
+index 0000000..266765a
+--- /dev/null
++++ b/docs/superpowers/plans/2026-10-22-local-cheats.md
+@@ -0,0 +1,31 @@
++# Local 1.2.1 Cheats Implementation Plan
++
++> For agentic workers: use superpowers:executing-plans task by task.
++
++Goal: implement the five approved local single-player cheat probes, independently switchable, and distinguish tests from field verification.
++Architecture: a small memory-access core with injected checked reader/writer, plus a macOS adapter in the loader. Only 1.2.1 and its verified rewritten main digest are accepted. Configuration is opt-in and refreshed by a low-frequency thread; testing uses a separate profile.
++Tech stack: C11, Mach self-task read/write, Python unittest/C fixture.
++Spec: /Volumes/SwitchNative/Tools/王国之泪1.2.1金手指方案.md
++
++## Global Constraints
++No global cheat VM or arbitrary code loading. No main checkout edits. No original saves or existing apps overwritten. Only five features: current-max health, stamina, current weapon durability; 999998 rupees; collected material count 888. Config initially disabled, read-only inspection available. Invalid mappings, values and pointer chains cause skips. Exclude executable memory writes.
++
++## Review Focus
++Null/freed objects: checked reads and writes; empty inventory sentinels: retain; wrong version: deny; absent/malformed config: disable all; scene changes: no writes through unchecked raw pointers. Runtime object races remain a known limitation: live test on copied saves only.
++
++### Task 1: Core
++Files: games/totk/runtime/local_cheats121.h; tests/local_cheats121_probe.c; tests/test_local_cheats121.py.
++- [ ] Write fixture for health/stamina/weapon/money/materials plus disabled/null/unreadable cases; run red against no-op API.
++- [ ] Implement narrowly translated pointer rules, including material conditional pointer advancement from the supplied codes.
++- [ ] Run green and sanitizer checks; record result.
++
++### Task 2: Adapter
++Files: games/totk/runtime/local_cheats121_host.h; runtime/loader.c.
++- [ ] Validate configuration parser and version guard with negative cases.
++- [ ] Add guarded self-memory access (readable/writable non-executable ranges), config refresh, counters; wire only v121 boot path.
++- [ ] Build changed runtime in a separate APFS-cloned work folder after normal 1.2.1 completes; package separate bundle using same validated data.
++
++### Task 3: Runtime
++- [ ] Copy profile to T7 experimental profile. Enable each feature independently then together; log addresses only when necessary, no unrelated data.
++- [ ] Observe actual gameplay; do not assert features untestable in prologue are working.
++- [ ] Verify disable and restart; run full unittest suite, fresh review, record status and remaining limitations.
+diff --git a/games/totk/runtime/loader.c b/games/totk/runtime/loader.c
+index 47a3c14..69a3350 100644
+--- a/games/totk/runtime/loader.c
++++ b/games/totk/runtime/loader.c
+@@ -21,6 +21,10 @@
+ #include "runtime_tables.h"
+ #include "game_patches.h"
+ #include "game_version.h"
++#if defined(TOTK_GAME_V121) && !TARGET_OS_IPHONE
++#include "local_cheats121_host.h"
++extern int runtime_local_cheat_owned(uint64_t,size_t);
++#endif
+ #define NM (sizeof(modules)/sizeof(modules[0]))
+ pthread_key_t runtime_keys[8];
+ static uint64_t timer_calls, svc_calls;
+@@ -545,5 +549,8 @@ int main(int argc,char **argv) {
+ #endif
+  verify_identity(!strcmp(argv[2],"probe-identity-negative"));
+  for(unsigned i=0;i<NM;i++){seal(&modules[i]);check_permissions(&modules[i]);}
++#if defined(TOTK_GAME_V121) && !TARGET_OS_IPHONE
++ if(!strcmp(argv[2],"boot"))lc_host_start((uint64_t)modules[0].base,modules[0].size,runtime_local_cheat_owned,TOTK_GAME_VERSION,modules[0].digest);
++#endif
+  if(!strcmp(argv[2],"probe-gpu-sampler-border")||!strcmp(argv[2],"probe-gpu-pool-retire")||!strcmp(argv[2],"probe-gpu-tex-slots")||!strcmp(argv[2],"probe-gpu-arg-epoch")||!strcmp(argv[2],"probe-gpu-anomaly")||!strcmp(argv[2],"probe-gpu-vertex-streams")||!strcmp(argv[2],"probe-gpu-layer-merge")||!strcmp(argv[2],"probe-gpu-cube-merge")||!strcmp(argv[2],"probe-gpu-texture-retire")||!strcmp(argv[2],"probe-gpu-texels-region")||!strcmp(argv[2],"probe-gpu-linear-rt")||!strcmp(argv[2],"probe-gpu-storage-view")||!strcmp(argv[2],"probe-gpu-compressed-alias")||!strcmp(argv[2],"probe-gpu-upload-batch")||!strcmp(argv[2],"probe-gpu-ds-clear")||!strcmp(argv[2],"probe-gpu-ub-rename")||!strcmp(argv[2],"probe-gpu-ubo-snapshot")||!strcmp(argv[2],"probe-gpu-drv-c0")||!strcmp(argv[2],"probe-gpu-dispatch-chain")||!strcmp(argv[2],"probe-gpu-copy-alias")||!strcmp(argv[2],"probe-gpu-srgb-view")||!strcmp(argv[2],"probe-gpu-depth-output"))runtime_gpu_path_probe(argv[2]);else if(!strcmp(argv[2],"probe-memory"))runtime_memory_probe();else if(!strcmp(argv[2],"probe-gfx"))runtime_gfx_probe(0);else if(!strcmp(argv[2],"probe-vpool"))runtime_vpool_probe();else if(!strcmp(argv[2],"probe-gpu-widen")||!strcmp(argv[2],"probe-gpu-blockrt")||!strcmp(argv[2],"probe-gpu-midclear")||!strcmp(argv[2],"probe-gpu-winding")||!strcmp(argv[2],"probe-gpu-tile"))runtime_gpu_path_probe(argv[2]);else if(!strcmp(argv[2],"probe-audio"))runtime_audio_probe();else if(!strcmp(argv[2],"probe-gfx-negative"))runtime_gfx_probe(1);else if(!strcmp(argv[2],"probe"))probe();else if(!strcmp(argv[2],"probe-fs"))runtime_fs_probe();else if(!strcmp(argv[2],"probe-swkbd"))runtime_swkbd_probe();else if(!strcmp(argv[2],"probe-save"))runtime_save_probe();else if(!strcmp(argv[2],"boot")){if(getenv("TOTK_VERIFY_STARTUP")||getenv("TOTK_HEADLESS"))boot();else runtime_front_run(boot);}else runtime_fail("unknown mode");return 0;
+ }
+diff --git a/games/totk/runtime/local_cheats121.h b/games/totk/runtime/local_cheats121.h
+new file mode 100644
+index 0000000..d4419a2
+--- /dev/null
++++ b/games/totk/runtime/local_cheats121.h
+@@ -0,0 +1,75 @@
++#ifndef LOCAL_CHEATS121_H
++#define LOCAL_CHEATS121_H
++#include <stdint.h>
++#include <stddef.h>
++#include <string.h>
++typedef int (*LCRead)(void *, uint64_t, void *, size_t);
++typedef int (*LCWrite)(void *, uint64_t, const void *, size_t);
++typedef struct { void *ctx; LCRead read; LCWrite write; } LCMemory;
++typedef struct { unsigned writes[5]; unsigned ready; } LCStats;
++/* Local translation of selected Eiffel2018 1.2.1 codes supplied by the user.
++ * This is not an Atmosphere interpreter. Failed reads abort the affected operation. */
++static inline int lc_read(LCMemory m,uint64_t a,void *v,size_t n) {
++ return a>=0x1000 && n<=0x8000000000ULL && a<=0x8000000000ULL-n && m.read(m.ctx,a,v,n);
++}
++static inline uint64_t lc_ptr(LCMemory m,uint64_t p,uint64_t off) {
++ uint64_t v=0;if(!p||p>UINT64_MAX-off||!lc_read(m,p+off,&v,8)||v<0x1000||v>=0x8000000000ULL||(v&7))return 0;return v;
++}
++static inline uint64_t lc_chain(LCMemory m,uint64_t base,const uint32_t *offsets,size_t n) {
++ for(size_t i=0;i<n&&base;i++)base=lc_ptr(m,base,offsets[i]);return base;
++}
++static inline int lc_put(LCMemory m,uint64_t a,uint32_t v,int dry) {
++ uint32_t before=0;if(!lc_read(m,a,&before,4))return 0;
++ return before==v || dry || m.write(m.ctx,a,&v,4);
++}
++static inline int lc_fill(LCMemory m,uint64_t obj,int dry,uint32_t limit) {
++ uint64_t max=lc_ptr(m,obj,0x1838),cur=lc_ptr(m,obj,0x1830);uint32_t n=0,old=0;
++ if(!max||!cur||!lc_read(m,max+8,&n,4)||!lc_read(m,cur+8,&old,4)||!n||n>limit||old>n)return 0;
++ return lc_put(m,cur+8,n,dry);
++}
++static inline LCStats lc_tick(LCMemory m, uint64_t base, unsigned flags, int dry) {
++ LCStats s={0};if(!flags||base>UINT64_MAX-0x4721b98)return s;
++ const uint32_t actor_path[]={0x46af308,0x480,0x228};
++ uint64_t actor=lc_chain(m,base,actor_path,3);
++ if(flags&1){
++  uint64_t health=lc_ptr(m,actor,0x2f8);
++  if(lc_fill(m,health,dry,160)){
++   s.ready|=1;s.writes[0]++;
++   uint64_t gloom=lc_ptr(m,health,0x1848);uint32_t v=0;
++   if(gloom&&lc_read(m,gloom+8,&v,4)&&v<=160)lc_put(m,gloom+8,0,dry);
++  }
++ }
++ uint64_t data=lc_ptr(m,base,0x4721b98);
++ if(flags&2){
++  uint64_t cap=lc_ptr(m,data,0x198),cur=lc_ptr(m,actor,0x3a8);float n=0,v=0;
++  if(cap&&cur&&lc_read(m,cap+0x5bc,&n,4)&&lc_read(m,cur+0x13fc,&v,4)&&n>0&&n<=10000&&v>=0&&v<=n){
++   uint32_t bits;memcpy(&bits,&n,4);if(lc_put(m,cur+0x13fc,bits,dry)){s.ready|=2;s.writes[1]++;}
++  }
++ }
++ if(flags&4){
++  const uint32_t weapon_path[]={0x230,0x28,0x40,0x228,0x2f8};
++  uint64_t weapon=lc_chain(m,actor,weapon_path,5);
++  if(lc_fill(m,weapon,dry,100000)){s.ready|=4;s.writes[2]++;}
++ }
++ if(flags&8){
++  uint64_t wallet=lc_ptr(m,data,0xd8);uint32_t old;
++  if(wallet&&lc_read(m,wallet+0x28ea4,&old,4)&&old<=999999&&lc_put(m,wallet+0x28ea4,999998,dry)){s.ready|=8;s.writes[3]++;}
++ }
++ if(flags&16){
++  const uint32_t inventory_path[]={0x138,0xf28};uint64_t p=lc_chain(m,data,inventory_path,2);
++  /* Source 640F1000 advances four on the non-sentinel arm.
++   * 21000000 begins ELSE: 780F0000 advances eight only for sentinel slots. */
++  for(unsigned i=0;i<255&&p;i++){
++   uint32_t qty;if(!lc_read(m,p,&qty,4))break;
++   if(qty!=UINT32_MAX){
++    if(qty>999)break; /* invalid layout: never walk further into unknown objects */
++    if(qty&&lc_put(m,p,888,dry)){s.ready|=16;s.writes[4]++;}
++    if(p>UINT64_MAX-4)break;p+=4;
++   } else {
++    if(p>UINT64_MAX-8)break;p+=8;
++   }
++  }
++ }
++ return s;
++}
++#endif
+diff --git a/games/totk/runtime/local_cheats121_config.h b/games/totk/runtime/local_cheats121_config.h
+new file mode 100644
+index 0000000..0dae48d
+--- /dev/null
++++ b/games/totk/runtime/local_cheats121_config.h
+@@ -0,0 +1,30 @@
++#ifndef LOCAL_CHEATS121_CONFIG_H
++#define LOCAL_CHEATS121_CONFIG_H
++#include <stdio.h>
++#include <string.h>
++#include <ctype.h>
++typedef struct { unsigned flags; int dry; int valid; } LCConfig;
++/* Missing, duplicate or malformed settings fail closed. No arbitrary addresses or values. */
++static inline LCConfig lc_config(FILE *f) {
++ LCConfig c={0,1,0};if(!f)return c;
++ const char *names[]={"enabled","health","stamina","weapon","rupees","materials","dry_run"};
++ unsigned seen=0,enabled=0;char line[256];
++ while(fgets(line,sizeof line,f)){
++  if(!strchr(line,'\n')&&!feof(f))return (LCConfig){0,1,0};
++  char *comment=strchr(line,'#');if(comment)*comment=0;
++  char *p=line;while(isspace((unsigned char)*p))p++;if(!*p)continue;
++  char *eq=strchr(p,'=');if(!eq)return (LCConfig){0,1,0};*eq=0;
++  char *end=eq;while(end>p&&isspace((unsigned char)end[-1]))*--end=0;
++  char *v=eq+1;while(isspace((unsigned char)*v))v++;
++  if(*v!='0'&&*v!='1')return (LCConfig){0,1,0};int bit=*v++-'0';
++  while(isspace((unsigned char)*v))v++;if(*v)return (LCConfig){0,1,0};
++  unsigned i;for(i=0;i<7&&strcmp(p,names[i]);i++);
++  if(i==7||(seen&(1u<<i)))return (LCConfig){0,1,0};seen|=1u<<i;
++  if(i==0)enabled=(unsigned)bit;else if(i==6)c.dry=bit;else if(bit)c.flags|=1u<<(i-1);
++ }
++ if(ferror(f))return (LCConfig){0,1,0};c.valid=1;if(!enabled)c.flags=0;return c;
++}
++static inline int lc_identity(const char *version,const char *digest){
++ return version&&digest&&!strcmp(version,"1.2.1")&&!strcmp(digest,"b7a2cc7e3465c4f11cd23f34cb38e037cf51d1d18310206f03b86c160ff2dbd0");
++}
++#endif
+diff --git a/games/totk/runtime/local_cheats121_host.h b/games/totk/runtime/local_cheats121_host.h
+new file mode 100644
+index 0000000..7319e3a
+--- /dev/null
++++ b/games/totk/runtime/local_cheats121_host.h
+@@ -0,0 +1,60 @@
++#ifndef LOCAL_CHEATS121_HOST_H
++#define LOCAL_CHEATS121_HOST_H
++#include "local_cheats121.h"
++#include "local_cheats121_config.h"
++#include <mach/mach.h>
++#include <mach/mach_vm.h>
++#include <pthread.h>
++#include <unistd.h>
++#include <stdlib.h>
++#include <errno.h>
++/* Validating the mapping cannot prevent a concurrent game object from changing.
++ * This adapter is for a separate experimental profile, never a general memory editor. */
++static inline int lc_mapping(uint64_t addr,size_t n,int writing){
++ if(addr<0x1000||n>0x8000000000ULL||addr>0x8000000000ULL-n)return 0;
++ mach_vm_address_t at=addr;mach_vm_size_t size=0;mach_port_t object=MACH_PORT_NULL;
++ vm_region_basic_info_data_64_t info;mach_msg_type_number_t count=VM_REGION_BASIC_INFO_COUNT_64;
++ kern_return_t kr=mach_vm_region(mach_task_self(),&at,&size,VM_REGION_BASIC_INFO_64,(vm_region_info_t)&info,&count,&object);
++ if(object!=MACH_PORT_NULL)mach_port_deallocate(mach_task_self(),object);
++ if(kr!=KERN_SUCCESS||at>addr||addr-at>size||n>size-(addr-at))return 0;
++ if(!(info.protection&VM_PROT_READ))return 0;
++ return !writing||((info.protection&VM_PROT_WRITE)&&!(info.protection&VM_PROT_EXECUTE));
++}
++typedef struct { uint64_t writes,base,size; int (*guest)(uint64_t,size_t); } LCScope;
++static inline int lc_owned(LCScope *s,uint64_t a,size_t n,int writing){
++ if(!s)return 0;
++ if(!writing&&a>=s->base&&n<=s->size&&a-s->base<=s->size-n)return 1;
++ return s->guest&&s->guest(a,n);
++}
++static inline int lc_mach_read(void *ctx,uint64_t addr,void *out,size_t n){
++ if(!lc_owned(ctx,addr,n,0)||!lc_mapping(addr,n,0))return 0;mach_vm_size_t got=0;
++ return mach_vm_read_overwrite(mach_task_self(),addr,n,(mach_vm_address_t)out,&got)==KERN_SUCCESS&&got==n;
++}
++static inline int lc_mach_write(void *ctx,uint64_t addr,const void *in,size_t n){
++ if(n!=4||!lc_owned(ctx,addr,n,1)||!lc_mapping(addr,n,1))return 0;
++ kern_return_t kr=mach_vm_write(mach_task_self(),addr,(vm_offset_t)in,(mach_msg_type_number_t)n);
++ if(kr==KERN_SUCCESS&&ctx)((LCScope *)ctx)->writes++;
++ return kr==KERN_SUCCESS;
++}
++typedef struct { LCScope scope; const char *config; } LCHost;
++static void *lc_worker(void *arg){
++ LCHost *h=arg;unsigned tick=0,previous=UINT32_MAX;int last_dry=-1;
++ LCMemory m={&h->scope,lc_mach_read,lc_mach_write};
++ for(;;){
++  FILE *f=fopen(h->config,"r");LCConfig cfg=lc_config(f);if(f)fclose(f);
++  if(previous!=cfg.flags||last_dry!=cfg.dry){fprintf(stderr,"[local-cheats121] config valid=%d enabled-mask=%u dry-run=%d\n",cfg.valid,cfg.flags,cfg.dry);previous=cfg.flags;last_dry=cfg.dry;}
++  LCStats s=lc_tick(m,h->scope.base,cfg.flags,cfg.dry);
++  if(cfg.flags&&tick%50==0)fprintf(stderr,"[local-cheats121] ready-mask=%u valid-targets=%u,%u,%u,%u,%u actual-writes=%llu\n",s.ready,s.writes[0],s.writes[1],s.writes[2],s.writes[3],s.writes[4],(unsigned long long)h->scope.writes);
++  tick++;usleep(100000);
++ }
++ return NULL;
++}
++static inline void lc_host_start(uint64_t base,uint64_t size,int (*guest)(uint64_t,size_t),const char *version,const char *digest){
++ const char *path=getenv("TOTK_LOCAL_CHEATS");if(!path||!*path)return;
++ if(!lc_identity(version,digest)){fprintf(stderr,"[local-cheats121] refused: version or module identity mismatch\n");return;}
++ static LCHost h;h.scope=(LCScope){0,base,size,guest};h.config=strdup(path);if(!h.config)return;
++ pthread_t worker;int err=pthread_create(&worker,NULL,lc_worker,&h);
++ if(err){fprintf(stderr,"[local-cheats121] thread unavailable (%d)\n",err);free((void *)h.config);return;}
++ pthread_detach(worker);fprintf(stderr,"[local-cheats121] experimental self-memory probe; matching 1.2.1 module\n");
++}
++#endif
+diff --git a/games/totk/runtime/services.c b/games/totk/runtime/services.c
+index 8e15289..0e127fe 100644
+--- a/games/totk/runtime/services.c
++++ b/games/totk/runtime/services.c
+@@ -45,6 +45,10 @@ static uint64_t alias_size(void){if(!alias_len)alias_len=alias_requested();retur
+ #define STACK_OFF 0x10000000ULL
+ #define STACK_SIZE 0x10000000ULL
+ #define HEAP_OFF (STACK_OFF+STACK_SIZE+0x10000000ULL)
++#if defined(TOTK_GAME_V121)
++#include <stdatomic.h>
++static _Atomic uint64_t lc_heap_start,lc_alias_start,lc_alias_size;
++#endif
+ static uint8_t *alias_space,*low_space,*heap;
+ static size_t heap_size;
+ static unsigned char alias_pages[ALIAS_SIZE_MAX/4096];
+@@ -147,6 +151,11 @@ static void memory_init(void) {
+  }
+ #endif
+  heap=low_space+HEAP_OFF;
++#if defined(TOTK_GAME_V121)
++ atomic_store(&lc_heap_start,(uintptr_t)heap);
++ atomic_store(&lc_alias_size,ALIAS_SIZE);
++ atomic_store(&lc_alias_start,ALIAS_START);
++#endif
+  fprintf(stderr,"[totk] guest layout: alias %#llx+%#llx stack %#llx+%#llx heap %#llx (cap %#llx)\n",(unsigned long long)ALIAS_START,ALIAS_SIZE,(unsigned long long)STACK_START,STACK_SIZE,(unsigned long long)(uintptr_t)heap,HEAP_CAP);
+ }
+ /* Scoped stack moves: independent host backing, copy back on unmap.
+@@ -217,6 +226,20 @@ static uint64_t alias_map(int unmap,uint64_t addr,uint64_t size){
+  }
+  pthread_mutex_unlock(&memory_lock);return 0;
+ }
++#if defined(TOTK_GAME_V121)
++/* Only the game's reserved heap and explicitly committed alias pages qualify.
++ * The caller also checks current Mach protections before every access. */
++int runtime_local_cheat_owned(uint64_t a,size_t n){
++ if(!n||a>UINT64_MAX-n)return 0;
++ uint64_t h=atomic_load(&lc_heap_start),b=atomic_load(&lc_alias_start),sz=atomic_load(&lc_alias_size);
++ if(h&&a>=h&&n<=HEAP_CAP&&a-h<=HEAP_CAP-n)return 1;
++ if(!b||a<b||n>sz||a-b>sz-n)return 0;
++ unsigned first=(unsigned)((a-b)/4096),last=(unsigned)((a-b+n-1)/4096);int ok=1;
++ pthread_mutex_lock(&memory_lock);
++ for(unsigned i=first;i<=last;i++)if(!alias_pages[i]){ok=0;break;}
++ pthread_mutex_unlock(&memory_lock);return ok;
++}
++#endif
+ uint64_t runtime_heap_base(void){return (uintptr_t)heap;}
+ /* Guest memory the game has committed (heap size + mapped alias pages), for memory reports (iOS app monitor). */
+ void runtime_guest_committed(uint64_t *heap_bytes,uint64_t *alias_mapped){*heap_bytes=heap_size;*alias_mapped=alias_bytes;}
+diff --git a/tests/local_cheats121_config_probe.c b/tests/local_cheats121_config_probe.c
+new file mode 100644
+index 0000000..c6e5496
+--- /dev/null
++++ b/tests/local_cheats121_config_probe.c
+@@ -0,0 +1,15 @@
++#include <assert.h>
++#include "../games/totk/runtime/local_cheats121_config.h"
++static LCConfig parse(const char *s){FILE *f=tmpfile();assert(f);fputs(s,f);rewind(f);LCConfig c=lc_config(f);fclose(f);return c;}
++int main(void){
++ const char *digest="b7a2cc7e3465c4f11cd23f34cb38e037cf51d1d18310206f03b86c160ff2dbd0";
++ assert(lc_identity("1.2.1",digest));assert(!lc_identity("1.0.0",digest));assert(!lc_identity("1.2.1","other"));
++ LCConfig c=parse("enabled=1\nhealth=1\nstamina=1\nweapon=1\nrupees=1\nmaterials=1\ndry_run=1\n");assert(c.valid&&c.flags==31&&c.dry);
++ c=parse("# comment\n enabled = 0\nhealth=1\n");assert(c.valid&&!c.flags&&c.dry);
++ c=parse("enabled=1\nhealth=1\ndry_run=0\n");assert(c.flags==1&&!c.dry);
++ c=parse("enabled=1\nhealth=1\nunknown=1\n");assert(!c.valid&&!c.flags);
++ c=parse("enabled=1\nhealth=1\nhealth=0\n");assert(!c.valid&&!c.flags);
++ c=parse("enabled=1\nhealth=1trailing\n");assert(!c.valid&&!c.flags);
++ c=lc_config(NULL);assert(!c.valid&&!c.flags);
++ puts("configuration and identity PASS");
++}
+diff --git a/tests/local_cheats121_host_probe.c b/tests/local_cheats121_host_probe.c
+new file mode 100644
+index 0000000..5787963
+--- /dev/null
++++ b/tests/local_cheats121_host_probe.c
+@@ -0,0 +1,17 @@
++#include <assert.h>
++#include <sys/mman.h>
++#include "../games/totk/runtime/local_cheats121_host.h"
++static uint64_t guest_start;
++static int owned(uint64_t a,size_t n){return a>=guest_start&&n<=16384&&a-guest_start<=16384-n;}
++int main(void){
++ size_t n=16384;void *p=mmap(NULL,n,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANON,-1,0);assert(p!=MAP_FAILED);
++ uint64_t a=(uint64_t)p;LCScope scope={0,0,0,owned};guest_start=a;uint32_t v=42,out=0;
++ assert(!lc_mach_write(NULL,a,&v,4)); /* no guest ownership => reject, even RW */
++ assert(lc_mach_write(&scope,a,&v,4));assert(scope.writes==1);assert(lc_mach_read(&scope,a,&out,4)&&out==42);
++ assert(mprotect(p,n,PROT_READ)==0);v=99;assert(!lc_mach_write(&scope,a,&v,4));assert(lc_mach_read(&scope,a,&out,4)&&out==42);
++ void *other=mmap(NULL,n,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANON,-1,0);assert(other!=MAP_FAILED);assert(!lc_mach_write(&scope,(uint64_t)other,&v,4));assert(!lc_mach_read(&scope,(uint64_t)other,&out,4));assert(munmap(other,n)==0);
++ assert(mprotect(p,n,PROT_NONE)==0);assert(!lc_mach_read(&scope,a,&out,4));assert(!lc_mach_write(&scope,a,&v,4));
++ assert(munmap(p,n)==0);assert(!lc_mach_read(&scope,a,&out,4));assert(!lc_mach_write(&scope,a,&v,4));
++ assert(!lc_mach_read(&scope,UINT64_MAX-2,&out,4));assert(scope.writes==1);
++ puts("Mach mapping guards PASS");
++}
+diff --git a/tests/local_cheats121_probe.c b/tests/local_cheats121_probe.c
+new file mode 100644
+index 0000000..0f03468
+--- /dev/null
++++ b/tests/local_cheats121_probe.c
+@@ -0,0 +1,42 @@
++/* Synthetic address-space fixture: literal expected values independent of cheat implementation. */
++#include <assert.h>
++#include <stdlib.h>
++#include <string.h>
++#include <stdio.h>
++#include "../games/totk/runtime/local_cheats121.h"
++#define SIZE 0x4804000
++static unsigned char *data;
++static uint64_t denied;
++static int read_mem(void *c,uint64_t a,void *p,size_t n){(void)c;if(a<0x1000||a>SIZE||n>SIZE-a||a==denied)return 0;memcpy(p,data+a,n);return 1;}
++static int write_mem(void *c,uint64_t a,const void *p,size_t n){(void)c;if(a<0x1000||a>SIZE||n>SIZE-a||a==denied)return 0;memcpy(data+a,p,n);return 1;}
++static void q(uint64_t a,uint64_t v){memcpy(data+a,&v,8);}
++static void w(uint64_t a,uint32_t v){memcpy(data+a,&v,4);}
++static uint32_t r(uint64_t a){uint32_t v;memcpy(&v,data+a,4);return v;}
++static void fixture(void){
++ memset(data,0,SIZE);denied=0;
++ q(0x1000+0x46af308,0x10000);q(0x10480,0x11000);q(0x11228,0x12000);q(0x122f8,0x14000);
++ q(0x15838,0x16000);q(0x15830,0x17000);q(0x15848,0x18000);w(0x16008,12);w(0x17008,4);w(0x18008,4);
++ q(0x1000+0x4721b98,0x19000);q(0x19198,0x1a000);w(0x1a5bc,0x447a0000);q(0x123a8,0x1b000);w(0x1c3fc,0x43fa0000);
++ q(0x12230,0x20000);q(0x20028,0x21000);q(0x21040,0x22000);q(0x22228,0x23000);q(0x232f8,0x24000);
++ q(0x25838,0x26000);q(0x25830,0x27000);w(0x26008,30);w(0x27008,11);
++ q(0x190d8,0x28000);w(0x50ea4,25);
++ q(0x19138,0x52000);q(0x52f28,0x54000);
++ /* Original VM: successful 640F1000 advances 4; ELSE advances 8 only for the sentinel. */
++ memset(data+0x54000,0xff,0x1000);w(0x54000,12);w(0x54004,7);w(0x5400c,0x5678);w(0x54010,3);w(0x54018,0x8765);
++}
++int main(void){
++ data=calloc(1,SIZE);assert(data);LCMemory m={0,read_mem,write_mem};fixture();
++ LCStats s=lc_tick(m,0x1000,0,0);assert(!s.ready&&r(0x17008)==4);
++ s=lc_tick(m,0x1000,31,1);assert(r(0x17008)==4&&r(0x50ea4)==25);
++ s=lc_tick(m,0x1000,1,0);assert(r(0x17008)==12);assert(r(0x18008)==0);assert(r(0x27008)==11);
++ s=lc_tick(m,0x1000,2,0);assert(r(0x1c3fc)==0x447a0000);
++ s=lc_tick(m,0x1000,4,0);assert(r(0x27008)==30);
++ s=lc_tick(m,0x1000,8,0);assert(r(0x50ea4)==999998);
++ s=lc_tick(m,0x1000,16,0);assert(r(0x54000)==888&&r(0x54010)==888&&r(0x54004)==888);assert(r(0x54008)==0xffffffff);assert(r(0x5400c)==0x5678&&r(0x54018)==0x8765);
++ fixture();q(0x11228,0);lc_tick(m,0x1000,7,0);assert(r(0x17008)==4&&r(0x27008)==11);
++ fixture();denied=0x17008;lc_tick(m,0x1000,1,0);assert(r(0x17008)==4);
++ fixture();w(0x16008,0x7fffffff);lc_tick(m,0x1000,1,0);assert(r(0x17008)==4);
++ fixture();w(0x54000,0);lc_tick(m,0x1000,16,0);assert(r(0x54000)==0&&r(0x54010)==888&&r(0x54004)==888);
++ fixture();lc_tick(m,UINT64_MAX-3,31,0);assert(r(0x17008)==4);
++ free(data);puts("local cheat fixture PASS");
++}
+diff --git a/tests/test_local_cheats121.py b/tests/test_local_cheats121.py
+new file mode 100644
+index 0000000..7000590
+--- /dev/null
++++ b/tests/test_local_cheats121.py
+@@ -0,0 +1,22 @@
++"""Behavioral fixture and macOS mapping checks for opt-in local 1.2.1 cheats."""
++import pathlib
++import shutil
++import subprocess
++import tempfile
++import unittest
++
++ROOT = pathlib.Path(__file__).resolve().parents[1]
++
++@unittest.skipUnless(shutil.which('xcrun'), 'requires macOS compiler and Mach APIs')
++class LocalCheatProbes(unittest.TestCase):
++    def test_memory_effects_config_and_real_mapping_guards(self):
++        for name in ('local_cheats121_probe', 'local_cheats121_config_probe', 'local_cheats121_host_probe'):
++            with self.subTest(probe=name), tempfile.TemporaryDirectory() as temp:
++                executable = pathlib.Path(temp) / name
++                build = subprocess.run(['xcrun', 'clang', '-std=c11', '-Wall', '-Wextra', '-Werror',
++                                        str(ROOT / 'tests' / (name + '.c')), '-o', str(executable)],
++                                       text=True, capture_output=True)
++                self.assertEqual(build.returncode, 0, build.stderr)
++                run = subprocess.run([str(executable)], text=True, capture_output=True)
++                self.assertEqual(run.returncode, 0, run.stderr)
++                self.assertIn('PASS', run.stdout)
+-- 
+2.54.0 (Apple Git-157)
+

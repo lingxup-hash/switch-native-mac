@@ -1,0 +1,48 @@
+From 8ed17713352e53ce0579ad238abb9f200f5d0bc1 Mon Sep 17 00:00:00 2001
+From: local <local@localhost>
+Date: Fri, 23 Oct 2026 19:41:23 -0300
+Subject: [PATCH 1/2] local: MAX_MOD 256 (Jamboree 139 NROs); bea_members reads
+ inline 0x48-byte ASST entries (Bezel file version 0x60000)
+
+---
+ dm/gfx/tools/shader_split.py | 8 +++++---
+ dm/host/dm.h                 | 2 +-
+ 2 files changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
+index e8326e5..d6caa4f 100644
+--- a/dm/gfx/tools/shader_split.py
++++ b/dm/gfx/tools/shader_split.py
+@@ -394,11 +394,13 @@ def bea_members(d, label):
+     u32 length, +0x20 u64 data offset, +0x28 u64 name offset (u16 length + the path)}. Every entry of the game's 7,665 is one zstd frame (kind 2, and 258 for the one sound project),
+     even the two whose stored length equals their length, so the frame magic decides. → (path, data) of each entry"""
+     n, arr = struct.unpack_from('<QQ', d, 0x20)
+-    zstd = None
++    inline = d[arr:arr + 4] == b'ASST'   # file version 0x60000 (Super Mario Party Jamboree): the entries sit inline at +0x28, 0x48 bytes each (u32 size at +4),
++    zstd = None                          # u32 stored length / length at +0x14, u64 data offset at +0x38, u64 name offset at +0x40
+     for i in range(n):
+-        o = struct.unpack_from('<Q', d, arr + 8 * i)[0]
++        o = arr + struct.unpack_from('<I', d, arr + 4)[0] * i if inline else struct.unpack_from('<Q', d, arr + 8 * i)[0]
+         if d[o:o + 4] != b'ASST': red(f'{label}: entry {i} @{o:#x} is not an ASST entry')
+-        csz, usz, off, nm = struct.unpack_from('<II4xQQ', d, o + 0x14)
++        if inline: (csz, usz), (off, nm) = struct.unpack_from('<II', d, o + 0x14), struct.unpack_from('<QQ', d, o + 0x38)
++        else: csz, usz, off, nm = struct.unpack_from('<II4xQQ', d, o + 0x14)
+         path = d[nm + 2:nm + 2 + struct.unpack_from('<H', d, nm)[0]].decode('utf-8', 'replace')
+         data = d[off:off + csz]
+         if data[:4] == ZSTD_MAGIC:
+diff --git a/dm/host/dm.h b/dm/host/dm.h
+index 7337ea2..297ca84 100644
+--- a/dm/host/dm.h
++++ b/dm/host/dm.h
+@@ -7,7 +7,7 @@
+ #include <string.h>
+ #include "game_profile.h"   // constants of the current game profile (generated from dm/games/<id>/game.tsv, chosen by the Makefile's GAME)
+ 
+-#define MAX_MOD 128   // the profile's modules (up to 8) and the NROs a game loads at run time (Super Smash Bros. Ultimate: 98)
++#define MAX_MOD 256   // the profile's modules (up to 8) and the NROs a game loads at run time (Super Smash Bros. Ultimate: 98; Super Mario Party Jamboree: 139)
+ #define LOG(...) do { fprintf(stderr, "[dm] " __VA_ARGS__); fputc('\n', stderr); } while (0)
+ #define die(...) do { LOG("FATAL " __VA_ARGS__); abort(); } while (0)
+ 
+-- 
+2.54.0 (Apple Git-157)
+
