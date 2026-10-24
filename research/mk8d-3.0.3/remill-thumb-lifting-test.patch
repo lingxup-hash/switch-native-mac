@@ -1,0 +1,34 @@
+diff --git a/tests/Thumb/TestLifting.cpp b/tests/Thumb/TestLifting.cpp
+index d9303db..1f6c109 100644
+--- a/tests/Thumb/TestLifting.cpp
++++ b/tests/Thumb/TestLifting.cpp
+@@ -280,6 +280,29 @@ TEST(ThumbRandomizedLifts, PopPC) {
+ }
+ 
+ 
++// Bytes from verified MK8D 3.0.3 main SHA256
++// 37b4dce352fbbdeaed6d5ad706c9e4ac152ba4b82245335bf35df66fd965bf2e,
++// at 0x8fd7f4: cmp r1, #3. Tests are local research only.
++TEST(MK8D303, CompareEqual) {
++  llvm::LLVMContext context;
++  TestOutputSpec spec(0x8fd7f4, std::string("\x03\x00\x51\xe3", 4),
++      remill::Instruction::Category::kCategoryNormal,
++      {{"r15", uint32_t(0x8fd7f4)}, {"r1", uint32_t(3)}},
++      {{"z", uint8_t(1)}, {"r1", uint32_t(3)}, {"r15", uint32_t(0x8fd7f8)}});
++  TestSpecRunner runner(context, remill::ArchName::kArchAArch32LittleEndian);
++  runner.RunTestSpec(spec);
++}
++
++TEST(MK8D303, CompareNotEqual) {
++  llvm::LLVMContext context;
++  TestOutputSpec spec(0x8fd7f4, std::string("\x03\x00\x51\xe3", 4),
++      remill::Instruction::Category::kCategoryNormal,
++      {{"r15", uint32_t(0x8fd7f4)}, {"r1", uint32_t(4)}},
++      {{"z", uint8_t(0)}, {"r1", uint32_t(4)}, {"r15", uint32_t(0x8fd7f8)}});
++  TestSpecRunner runner(context, remill::ArchName::kArchAArch32LittleEndian);
++  runner.RunTestSpec(spec);
++}
++
+ TEST(ArmRandomizedLifts, RelPcTest) {
+   llvm::LLVMContext curr_context;
+   std::string insn_data("\x0c\x10\x9f\xe5", 4);

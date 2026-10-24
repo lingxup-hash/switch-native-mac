@@ -1,0 +1,9 @@
+{
+  "commit": "9f6e2b7c3cdbac4bde3c1878ea6978cc85476067",
+  "executables_sha256": {
+    "Launcher": "d274fb60ad02829930c31cd42e01b5421ee0417c26b217128ed9c18638ec27e6",
+    "nxfs": "7c8f957549d3ed6ddf6c8e3065d9994108a9909e12610a076db1f939d48aaa97",
+    "nxhost": "3d6c0511c2392d2473d68d8df41d046edad294aa61ceda7829b5d8fe9d113b0d",
+    "nxpatch": "f34b9acf9b762aab43c0c9050e5ff95d4e42d2548b65feabfc264f5c7d3e1fad"
+  }
+}

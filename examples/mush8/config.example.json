@@ -1,0 +1,23 @@
+{
+  "aspect" : "fill",
+  "background_compile" : true,
+  "base" : "base.nsp",
+  "dlc" : "dlc.nsp",
+  "folder" : "\/Volumes\/SwitchNative\/GameFiles\/MK8D\/Mush8-4.0.1-cheat-test",
+  "handheld" : false,
+  "hud" : "edges",
+  "hud_scale" : 1,
+  "keys" : "prod.keys",
+  "lan_interface" : "",
+  "lanplay_server" : "",
+  "motion_controls" : false,
+  "network" : "lanplay",
+  "phone_pads" : true,
+  "pipeline_archive" : false,
+  "prewarm_pipelines" : true,
+  "rumble" : true,
+  "spatial_audio" : true,
+  "split60" : true,
+  "uhd" : true,
+  "update" : "upd4-0-1.nsp"
+}

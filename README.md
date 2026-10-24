@@ -35,7 +35,10 @@
 - `patches/nxnative/` — 对 nxnative 的两个补丁（见下）。
 - `profiles/mario-party-jamboree/` — 马力欧派对的诊断 profile（64 GB 别名区）。
 - `cheats/` — 金手指源码：旷野之息原生金手指（Swift/AppKit 界面 + Python/LLDB 后端）、旷野之息研究脚本、王国之泪 1.2.1 实验补丁（对 MacNativeGames）、马车8 金币实验记录。
-- `research/` — 马车8 3.0.3 ARM32 路线调研、旷野之息着色器缓存补全实验。
+- `research/` — 马车8 3.0.3 ARM32 路线调研（含对 remill 的 Thumb 提升测试补丁）、旷野之息着色器缓存补全实验。
+- `examples/mush8/` — mush8 的构建清单和配置示例（路径为作者本机，`keys` 只是文件名）。
+
+金手指实验参考过社区流传的 Atmosphere 金手指包（王国之泪 1.2.1 对应 Build ID `9B4E43650501A4D4`），那些代码作者另有其人、没有许可证声明，本仓库不转载，只放我们自己写的工具。
 
 ## 两个 nxnative 补丁（马力欧派对）
 
