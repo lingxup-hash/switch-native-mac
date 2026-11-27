@@ -15,7 +15,6 @@ class Tests(unittest.TestCase):
   self.assertEqual(len(plan('arrows',0,lambda a:0x1000)[0][1]),2)
  def test_no_material_replacement(self):
   self.assertNotIn('fairy',CASES)
-if __name__=='__main__':unittest.main()
 
 class RecoveryTests(unittest.TestCase):
  def test_empty_restore_is_not_success(self):
@@ -69,3 +68,6 @@ class ArrowJournalTests(unittest.TestCase):
  def test_other_groups_unchanged(self):
   from core import record_key
   self.assertEqual(record_key('bow_fast','a'),'bow_effect')
+
+if __name__ == '__main__':
+ unittest.main()
